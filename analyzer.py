@@ -745,3 +745,44 @@ if __name__ == "__main__":
         json.dump(result, f, ensure_ascii=False, indent=2)
     
     print("✅ Тест завершен. Результат сохранен в test_gpt4omini_analysis.json")
+
+
+
+async def analyze_chat_async(chat_id: str, messages: List[Dict], task_id: str = None):
+    """Асинхронный анализ диалога"""
+    # Импортируем здесь, чтобы избежать циклического импорта
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    from main import analyses_db, logger
+    
+    try:
+        logger.info(f"🤖 Starting async analysis for chat {chat_id}")
+        
+        # Здесь можно добавить логику для фонового анализа
+        # Пока используем синхронную версию
+        result = analyze_chat(messages)
+        
+        # Сохраняем результат
+        analyses_db[chat_id] = {
+            **result,
+            "chat_id": chat_id,
+            "analyzed_at": datetime.now().isoformat(),
+            "task_id": task_id,
+            "async": True
+        }
+        
+        logger.info(f"✅ Async analysis completed for chat {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Async analysis failed for chat {chat_id}: {e}")
+        
+        # Сохраняем ошибку
+        analyses_db[chat_id] = {
+            "error": True,
+            "error_message": str(e),
+            "chat_id": chat_id,
+            "analyzed_at": datetime.now().isoformat(),
+            "task_id": task_id
+        }

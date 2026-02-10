@@ -56,7 +56,7 @@ yarn-error.log*
 
 # Data files
 data/*.json
-!data/example_chats.json  # если нужны примеры данных
+!data/example_chats.json
 
 # Test outputs
 test_*.json
@@ -95,3 +95,13 @@ config.ini
 # Build artifacts
 staticfiles/
 mediafiles/
+
+# Batch analysis results
+logs/batch_analysis_*.json
+logs/batch_analysis_*.csv
+
+# Игнорировать все CSV файлы
+*.csv
+
+# Игнорировать все XLSX файлы
+*.xlsx

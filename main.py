@@ -168,7 +168,9 @@ async def root():
             "analysis": "GET /analysis/{chat_id}",
             "dashboard": "GET /dashboard",
             "health": "GET /health",
-            "send_test": "POST /send_test"
+            "send_test": "POST /send_test",
+            "analyze_batch": "POST /analyze/batch",  # НОВОЕ
+            "import_history": "POST /import/wazzup/history"  # НОВОЕ
         },
         "integrations": {
             "wazzup": WAZZUP_ENABLED,
@@ -582,6 +584,297 @@ async def send_test_message(
     except Exception as e:
         logger.error(f"❌ Ошибка отправки тестового сообщения: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ====================================================
+# НОВЫЕ ЭНДПОИНТЫ ДЛЯ МАССОВОГО АНАЛИЗА
+# ====================================================
+
+@app.post("/analyze/batch")
+async def analyze_batch_chats(
+    start_date: str = None,
+    end_date: str = None,
+    manager_id: str = None,
+    min_messages: int = 3,
+    limit: int = 10,
+    background: bool = True
+):
+    """
+    Массовый анализ диалогов по фильтрам
+    Пример: POST /analyze/batch?start_date=2024-01-01&limit=5
+    """
+    try:
+        filtered_chats = []
+        
+        for chat_id, chat in chats_db.items():
+            # Фильтрация по дате
+            if start_date:
+                chat_date = datetime.fromisoformat(chat.get("created_at", "2000-01-01").replace('Z', '+00:00'))
+                start_datetime = datetime.fromisoformat(start_date)
+                if chat_date < start_datetime:
+                    continue
+            
+            if end_date:
+                chat_date = datetime.fromisoformat(chat.get("created_at", "2000-01-01").replace('Z', '+00:00'))
+                end_datetime = datetime.fromisoformat(end_date)
+                if chat_date > end_datetime:
+                    continue
+            
+            # Фильтрация по менеджеру
+            if manager_id and chat.get("manager_id") != manager_id:
+                continue
+            
+            # Фильтрация по количеству сообщений
+            if len(chat.get("messages", [])) < min_messages:
+                continue
+            
+            # Проверяем, не анализировался ли недавно
+            if chat_id in analyses_db:
+                last_analysis = analyses_db[chat_id].get("analyzed_at", "")
+                if last_analysis:
+                    try:
+                        last_date = datetime.fromisoformat(last_analysis.replace('Z', '+00:00'))
+                        if (datetime.now() - last_date) < timedelta(hours=12):
+                            continue  # Пропускаем недавно анализированные
+                    except:
+                        pass
+            
+            filtered_chats.append((chat_id, chat))
+        
+        # Ограничиваем количество
+        filtered_chats = filtered_chats[:limit]
+        
+        if not filtered_chats:
+            return {
+                "message": "Нет диалогов по заданным критериям",
+                "filters": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "manager_id": manager_id,
+                    "min_messages": min_messages,
+                    "limit": limit
+                },
+                "total_chats": len(chats_db)
+            }
+        
+        results = []
+        
+        if background:
+            # Фоновый анализ
+            from analyzer import analyze_chat_async
+            import asyncio
+            
+            task_ids = []
+            for chat_id, chat in filtered_chats:
+                task_id = str(uuid.uuid4())
+                asyncio.create_task(
+                    analyze_chat_async(chat_id, chat["messages"], task_id)
+                )
+                task_ids.append(task_id)
+            
+            return {
+                "status": "batch_analysis_started",
+                "total": len(filtered_chats),
+                "task_ids": task_ids,
+                "chats": [chat_id for chat_id, _ in filtered_chats],
+                "message": f"Запущен массовый анализ {len(filtered_chats)} диалогов в фоне"
+            }
+        else:
+            # Синхронный анализ (может быть долго!)
+            for chat_id, chat in filtered_chats:
+                try:
+                    analysis_result = analyze_chat(chat["messages"])
+                    
+                    analyses_db[chat_id] = {
+                        **analysis_result,
+                        "chat_id": chat_id,
+                        "analyzed_at": datetime.now().isoformat(),
+                        "message_count": len(chat["messages"]),
+                        "batch_analyzed": True
+                    }
+                    
+                    results.append({
+                        "chat_id": chat_id,
+                        "success": True,
+                        "score": analysis_result.get("total_score", 0),
+                        "client": chat.get("client_number", "unknown"),
+                        "manager": chat.get("manager_id", "default")
+                    })
+                    
+                except Exception as e:
+                    results.append({
+                        "chat_id": chat_id,
+                        "success": False,
+                        "error": str(e)[:100]
+                    })
+            
+            # Считаем статистику
+            successful = [r for r in results if r["success"]]
+            avg_score = sum(r["score"] for r in successful) / len(successful) if successful else 0
+            
+            return {
+                "batch_completed": True,
+                "total_analyzed": len(filtered_chats),
+                "successful": len(successful),
+                "failed": len(results) - len(successful),
+                "average_score": round(avg_score, 1),
+                "results": results
+            }
+    
+    except Exception as e:
+        logger.error(f"❌ Batch analysis error: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch analysis failed: {str(e)}")
+
+@app.get("/analyze/batch/status/{task_id}")
+async def get_batch_status(task_id: str):
+    """Проверка статуса фонового анализа"""
+    # В реальной реализации нужно хранить статусы задач
+    # Сейчас просто проверяем, есть ли анализ для чатов с этим task_id
+    task_analyses = []
+    
+    for chat_id, analysis in analyses_db.items():
+        if analysis.get("task_id") == task_id:
+            task_analyses.append({
+                "chat_id": chat_id,
+                "score": analysis.get("total_score", 0),
+                "analyzed_at": analysis.get("analyzed_at"),
+                "status": "completed"
+            })
+    
+    if task_analyses:
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "analyses": task_analyses,
+            "count": len(task_analyses)
+        }
+    else:
+        return {
+            "task_id": task_id,
+            "status": "not_found_or_in_progress",
+            "message": "Анализ еще выполняется или task_id не найден"
+        }
+
+@app.post("/import/wazzup/history")
+async def import_wazzup_history(
+    days_back: int = 7,
+    limit: int = 50,
+    auto_analyze: bool = False
+):
+    """
+    Импорт истории диалогов из Wazzup за последние N дней
+    """
+    if not WAZZUP_ENABLED:
+        raise HTTPException(status_code=501, detail="Wazzup not configured")
+    
+    try:
+        # Получаем список чатов из Wazzup
+        wazzup_chats = wazzup.get_chats(limit=limit)
+        
+        if not wazzup_chats:
+            return {"message": "No chats found in Wazzup", "imported": 0}
+        
+        imported_count = 0
+        imported_chat_ids = []
+        
+        for wchat in wazzup_chats:
+            chat_id = wchat.get("id")
+            
+            # Проверяем дату последнего сообщения
+            last_message_time = wchat.get("lastMessageTime")
+            if last_message_time:
+                try:
+                    last_date = datetime.fromisoformat(last_message_time.replace('Z', '+00:00'))
+                    days_diff = (datetime.now() - last_date).days
+                    
+                    if days_diff > days_back:
+                        continue  # Пропускаем старые чаты
+                except:
+                    pass
+            
+            # Получаем историю сообщений
+            messages = wazzup.get_chat_history(chat_id, limit=100)
+            
+            if not messages or len(messages) < 2:
+                continue  # Пропускаем слишком короткие диалоги
+            
+            # Импортируем в нашу систему
+            if chat_id not in chats_db:
+                # Определяем клиента и менеджера
+                client_contact = None
+                manager_contact = None
+                
+                for msg in messages:
+                    sender = msg.get("sender", {})
+                    if sender.get("type") == "contact":
+                        client_contact = sender
+                    elif sender.get("type") == "operator":
+                        manager_contact = sender
+                
+                # Создаем чат
+                chats_db[chat_id] = {
+                    "id": chat_id,
+                    "client_number": client_contact.get("phone") if client_contact else chat_id,
+                    "client_name": client_contact.get("name") if client_contact else "Unknown",
+                    "manager_id": manager_contact.get("id") if manager_contact else "default",
+                    "manager_name": manager_contact.get("name") if manager_contact else "Default Manager",
+                    "source": "wazzup_import",
+                    "messages": [],
+                    "created_at": messages[0].get("timestamp", datetime.now().isoformat()),
+                    "last_updated": messages[-1].get("timestamp", datetime.now().isoformat()),
+                    "status": "closed",  # Импортированные чаты считаем закрытыми
+                    "imported_at": datetime.now().isoformat()
+                }
+                
+                # Добавляем сообщения
+                for msg in messages:
+                    sender = msg.get("sender", {})
+                    role = "client" if sender.get("type") == "contact" else "manager"
+                    
+                    message_entry = {
+                        "id": msg.get("id", str(uuid.uuid4())),
+                        "role": role,
+                        "text": msg.get("text", ""),
+                        "timestamp": msg.get("timestamp", datetime.now().isoformat()),
+                        "source": "wazzup_import",
+                        "metadata": {
+                            "sender_name": sender.get("name"),
+                            "sender_id": sender.get("id")
+                        }
+                    }
+                    
+                    chats_db[chat_id]["messages"].append(message_entry)
+                
+                imported_count += 1
+                imported_chat_ids.append(chat_id)
+                
+                # Авто-анализ если включено
+                if auto_analyze and len(messages) >= 3:
+                    try:
+                        analysis = analyze_chat(chats_db[chat_id]["messages"])
+                        analyses_db[chat_id] = {
+                            **analysis,
+                            "chat_id": chat_id,
+                            "analyzed_at": datetime.now().isoformat(),
+                            "auto_analyzed": True,
+                            "import_analyzed": True
+                        }
+                    except Exception as e:
+                        logger.error(f"Auto-analysis failed for imported chat {chat_id}: {e}")
+        
+        # Сохраняем данные
+        save_data_to_file()
+        
+        return {
+            "status": "import_completed",
+            "imported": imported_count,
+            "chat_ids": imported_chat_ids,
+            "auto_analyzed": auto_analyze,
+            "message": f"Импортировано {imported_count} диалогов из Wazzup"
+        }
+    
+    except Exception as e:
+        logger.error(f"❌ Wazzup import error: {e}")
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 @app.get("/debug/chat/{chat_id}/raw")
 async def debug_chat_raw(chat_id: str):
