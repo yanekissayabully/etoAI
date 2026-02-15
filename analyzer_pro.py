@@ -172,19 +172,22 @@ L6. Рекомендации по чату
         "questions_to_client": "Да/Нет/Неопределимо",
         "request_parameters_clarified": "Да/Нет/Неопределимо",
         "needs_recorded": "Да/Нет/Неопределимо",
-        "movement_to_solution": "Да/Нет/Неопределимо"
+        "movement_to_solution": "Да/Нет/Неопределимо",
+        "needs_explanation": "краткое пояснение (1-2 предложения) что именно выявили или не смогли выявить"
     },
     "l3_objections_work": {
         "objections_exist": "Да/Нет/Неопределимо",
         "objection_handling_attempt": "Да/Нет/Неопределимо",
         "objections_closed": "Да/Нет/Неопределимо",
-        "objection_type": "цена/срок/сомнение/другое/нет"
+        "objection_type": "цена/срок/сомнение/другое/нет",
+        "objection_explanation": "краткое пояснение (1-2 предложения) какие возражения были и как отработаны"
     },
     "l4_client_interest": {
         "client_shows_interest": "Да/Нет/Неопределимо",
         "client_willing_to_continue": "Да/Нет/Неопределимо",
         "client_requested_info": "Да/Нет/Неопределимо",
-        "client_agreed_next_step": "Да/Нет/Неопределимо"
+        "client_agreed_next_step": "Да/Нет/Неопределимо",
+        "interest_explanation": "краткое пояснение (1-2 предложения) как именно проявляется интерес клиента"
     },
     "l5_dialog_result": {
         "dialog_completed": "Да/Нет/Неопределимо",
@@ -197,6 +200,7 @@ L6. Рекомендации по чату
         "missed_opportunities": ["что упущено 1", "что упущено 2"],
         "improvements": ["конкретное улучшение 1", "улучшение 2"]
     },
+    "chat_preview": "первые 500 символов диалога для отображения в таблице",
     "summary_score": 0-100
 }
 
@@ -398,6 +402,16 @@ def validate_and_enrich_pro_analysis(result: Dict[str, Any], messages: List[Dict
     if metadata and "chat_id" in metadata:
         result["chat_id"] = metadata["chat_id"]
     
+    # Добавляем preview чата (первые 500 символов)
+    if "chat_preview" not in result:
+        chat_text = ""
+        for msg in messages[:10]:  # Первые 10 сообщений
+            role = "manager" if msg.get("role") == "manager" else "client"
+            text = msg.get("text", "")
+            timestamp = msg.get("timestamp", "")
+            chat_text += f"{timestamp} - {role}: {text}\n"
+        result["chat_preview"] = chat_text[:500]
+    
     return result
 
 def calculate_pro_score(analysis: Dict[str, Any]) -> int:
@@ -508,83 +522,80 @@ def create_pro_error_response(error_message: str) -> Dict[str, Any]:
     }
 
 def convert_to_table_row(analysis: Dict[str, Any], chat_id: str = "") -> Dict[str, Any]:
-    """Конвертирует анализ в строку таблицы с русскими названиями колонок"""
+    """Конвертирует анализ в строку таблицы в формате ОКК (sample.xlsx)"""
     
     if analysis.get("error"):
         return {
-            "ID чата": chat_id,
-            "Ошибка": analysis.get("error_message", "Unknown error"),
-            "Общий счет": 0
+            "Ответственный менеджер": "Ошибка",
+            "Менеджер в диалоге": analysis.get("error_message", "Unknown error"),
+            "Тэг": "Ошибка анализа",
+            "Дата": "",
+            "Пояснение": analysis.get("error_message", ""),
+            "Среднее время ответа (минуты)": "",
+            "Воронка -> этап": "",
+            "Ссылка на сделку": "",
+            "Анализируемая коммуникация": "",
+            "1. Поздоровался?": "",
+            "2. Был конфликт?": "",
+            "3.1 Выявили потребности?": "",
+            "3.2 Пояснение": "",
+            "4. Были возражения?": "",
+            "5. Была попытка закрыть возражения?": "",
+            "6.1 Возражение закрыто?": "",
+            "6.2 Пояснение": "",
+            "7.1 Интерес клиента к сделке": "",
+            "7.2 Пояснение": "",
+            "Рекомендация для менеджера": analysis.get("error_message", "")
         }
     
     row = {}
     
-    # Базовые поля
-    row["ID чата"] = chat_id or analysis.get("chat_id", "")
-    row["Общий счет"] = analysis.get("summary_score", 0)
-    row["Время анализа"] = analysis.get("analysis_timestamp", "")
-    
     # L0: Контекст
     l0 = analysis.get("l0_context", {})
-    row["Менеджер"] = l0.get("manager", "не указано")
-    row["Канал"] = l0.get("channel", "не указано")
-    row["Дата и время"] = l0.get("datetime", "не указано")
-    row["Этап воронки"] = l0.get("funnel_stage", "не указано")
-    row["Ссылка CRM"] = l0.get("crm_link", "не указано")
-    row["Среднее время ответа"] = l0.get("avg_response_time", "не указано")
-    row["Всего сообщений"] = l0.get("message_count", 0)
-    row["Сообщений менеджера"] = l0.get("manager_message_count", 0)
-    row["Сообщений клиента"] = l0.get("client_message_count", 0)
+    row["Ответственный менеджер"] = l0.get("manager", "не указано")
+    row["Менеджер в диалоге"] = l0.get("channel", "не указано")
+    row["Дата"] = l0.get("datetime", "не указано")
+    row["Среднее время ответа (минуты)"] = l0.get("avg_response_time", "не указано")
+    row["Воронка -> этап"] = l0.get("funnel_stage", "не указано")
+    row["Ссылка на сделку"] = l0.get("crm_link", "не указано")
+    
+    # Тэг - определяем на основе анализа
+    row["Тэг"] = generate_tag(analysis)
+    
+    # Пояснение - общее объяснение
+    row["Пояснение"] = generate_general_explanation(analysis)
+    
+    # Анализируемая коммуникация
+    row["Анализируемая коммуникация"] = analysis.get("chat_preview", "")
     
     # L1: Формальные действия
     l1 = analysis.get("l1_formal_actions", {})
-    row["Приветствие"] = map_yes_no(l1.get("greeting", "Неопределимо"))
-    row["Прощание"] = map_yes_no(l1.get("farewell", "Неопределимо"))
-    row["Вежливый тон"] = map_yes_no(l1.get("polite_tone", "Неопределимо"))
-    row["Конфликт"] = map_yes_no(l1.get("conflict", "Неопределимо"))
-    row["Ответ по сути"] = map_yes_no(l1.get("answered_substantively", "Неопределимо"))
-    row["Предложено CTA"] = map_yes_no(l1.get("cta_proposed", "Неопределимо"))
+    row["1. Поздоровался?"] = map_yes_no(l1.get("greeting", "Неопределимо"))
+    row["2. Был конфликт?"] = map_yes_no(l1.get("conflict", "Неопределимо"))
     
     # L2: Работа с потребностями
     l2 = analysis.get("l2_needs_work", {})
-    row["Вопросы клиенту"] = map_yes_no(l2.get("questions_to_client", "Неопределимо"))
-    row["Уточнены параметры"] = map_yes_no(l2.get("request_parameters_clarified", "Неопределимо"))
-    row["Зафиксированы потребности"] = map_yes_no(l2.get("needs_recorded", "Неопределимо"))
-    row["Движение к решению"] = map_yes_no(l2.get("movement_to_solution", "Неопределимо"))
+    row["3.1 Выявили потребности?"] = map_yes_no(l2.get("needs_recorded", "Неопределимо"))
+    row["3.2 Пояснение"] = l2.get("needs_explanation", "")
     
     # L3: Работа с возражениями
     l3 = analysis.get("l3_objections_work", {})
-    row["Возражения были"] = map_yes_no(l3.get("objections_exist", "Неопределимо"))
-    row["Попытка отработать"] = map_yes_no(l3.get("objection_handling_attempt", "Неопределимо"))
-    row["Возражения закрыты"] = map_yes_no(l3.get("objections_closed", "Неопределимо"))
-    row["Тип возражений"] = map_objection_type(l3.get("objection_type", "нет"))
+    row["4. Были возражения?"] = map_yes_no(l3.get("objections_exist", "Неопределимо"))
+    row["5. Была попытка закрыть возражения?"] = map_yes_no(l3.get("objection_handling_attempt", "Неопределимо"))
+    row["6.1 Возражение закрыто?"] = map_yes_no(l3.get("objections_closed", "Неопределимо"))
+    row["6.2 Пояснение"] = l3.get("objection_explanation", "")
     
     # L4: Интерес клиента
     l4 = analysis.get("l4_client_interest", {})
-    row["Клиент проявляет интерес"] = map_yes_no(l4.get("client_shows_interest", "Неопределимо"))
-    row["Клиент готов продолжать"] = map_yes_no(l4.get("client_willing_to_continue", "Неопределимо"))
-    row["Клиент запросил инфо"] = map_yes_no(l4.get("client_requested_info", "Неопределимо"))
-    row["Клиент согласился на шаг"] = map_yes_no(l4.get("client_agreed_next_step", "Неопределимо"))
+    row["7.1 Интерес клиента к сделке"] = map_yes_no(l4.get("client_shows_interest", "Неопределимо"))
+    row["7.2 Пояснение"] = l4.get("interest_explanation", "")
     
-    # L5: Результат диалога
-    l5 = analysis.get("l5_dialog_result", {})
-    row["Диалог завершен"] = map_yes_no(l5.get("dialog_completed", "Неопределимо"))
-    row["Договоренность есть"] = map_yes_no(l5.get("agreement_exists", "Неопределимо"))
-    row["Следующий контакт"] = map_yes_no(l5.get("next_contact_scheduled", "Неопределимо"))
-    row["Итоговый статус"] = map_final_status(l5.get("final_status", "неопределено"))
-    
-    # L6: Рекомендации (объединяем в строки для таблицы)
+    # L6: Рекомендации
     l6 = analysis.get("l6_recommendations", {})
-    row["Сделано хорошо"] = " | ".join(l6.get("done_well", []))
-    row["Упущенные возможности"] = " | ".join(l6.get("missed_opportunities", []))
-    row["Улучшения"] = " | ".join(l6.get("improvements", []))
-    
-    # Модель
-    row["Модель ИИ"] = analysis.get("model_used", OPENAI_MODEL)
-    
-    # Добавляем расчетные поля
-    row["Эффективность"] = calculate_efficiency(row)
-    row["Категория"] = get_score_category(row.get("Общий счет", 0))
+    recommendations = []
+    recommendations.extend(l6.get("done_well", []))
+    recommendations.extend(l6.get("improvements", []))
+    row["Рекомендация для менеджера"] = " ".join(recommendations) if recommendations else "Нет рекомендаций"
     
     return row
 
@@ -629,6 +640,63 @@ def map_final_status(value: str) -> str:
         "undefined": "❓ Не определено"
     }
     return mapping.get(value, value)
+
+def generate_tag(analysis: Dict[str, Any]) -> str:
+    """Генерирует тэг на основе анализа"""
+    l1 = analysis.get("l1_formal_actions", {})
+    l3 = analysis.get("l3_objections_work", {})
+    l4 = analysis.get("l4_client_interest", {})
+    l5 = analysis.get("l5_dialog_result", {})
+    
+    # Проверяем на проблемы
+    if l1.get("greeting") != "Да" and l1.get("greeting") != "Yes":
+        return "Нет приветствия"
+    
+    if l1.get("conflict") == "Да" or l1.get("conflict") == "Yes":
+        return "Конфликт"
+    
+    if l3.get("objections_exist") == "Да" or l3.get("objections_exist") == "Yes":
+        if l3.get("objections_closed") != "Да" and l3.get("objections_closed") != "Yes":
+            return "Возражение не закрыто"
+    
+    if l4.get("client_shows_interest") != "Да" and l4.get("client_shows_interest") != "Yes":
+        return "Клиент не проявляет интерес"
+    
+    if l5.get("dialog_completed") != "Да" and l5.get("dialog_completed") != "Yes":
+        return "Диалог не завершен"
+    
+    if l5.get("agreement_exists") == "Да" or l5.get("agreement_exists") == "Yes":
+        return "Есть договоренность"
+    
+    return "Нормальный диалог"
+
+def generate_general_explanation(analysis: Dict[str, Any]) -> str:
+    """Генерирует общее пояснение на основе анализа"""
+    l6 = analysis.get("l6_recommendations", {})
+    l1 = analysis.get("l1_formal_actions", {})
+    l4 = analysis.get("l4_client_interest", {})
+    
+    explanation_parts = []
+    
+    # Добавляем ключевые observations
+    if l1.get("conflict") == "Да" or l1.get("conflict") == "Yes":
+        explanation_parts.append("В диалоге присутствовал конфликт.")
+    
+    if l4.get("client_shows_interest") == "Да" or l4.get("client_shows_interest") == "Yes":
+        explanation_parts.append("Клиент проявил интерес к предложению.")
+    
+    if l4.get("client_shows_interest") != "Да" and l4.get("client_shows_interest") != "Yes":
+        explanation_parts.append("Клиент не проявил явного интереса к сделке.")
+    
+    # Добавляем рекомендации
+    improvements = l6.get("improvements", [])
+    if improvements:
+        explanation_parts.append(" ".join(improvements[:2]))  # Первые 2 улучшения
+    
+    if not explanation_parts:
+        return "Диалог прошел в штатном режиме."
+    
+    return " ".join(explanation_parts)
 
 def calculate_efficiency(row: Dict[str, Any]) -> str:
     """Рассчитывает эффективность на основе ключевых метрик"""
@@ -685,48 +753,28 @@ def get_score_category(score: int) -> str:
         return "⚠️ Требует улучшения"
 
 def get_table_headers() -> List[str]:
-    """Возвращает заголовки для таблицы на русском"""
+    """Возвращает заголовки для таблицы в формате ОКК (sample.xlsx)"""
     return [
-        "ID чата",
-        "Общий счет",
-        "Категория",
-        "Эффективность",
-        "Время анализа",
-        "Менеджер",
-        "Канал",
-        "Дата и время",
-        "Этап воронки",
-        "Ссылка CRM",
-        "Среднее время ответа",
-        "Всего сообщений",
-        "Сообщений менеджера",
-        "Сообщений клиента",
-        "Приветствие",
-        "Прощание",
-        "Вежливый тон",
-        "Конфликт",
-        "Ответ по сути",
-        "Предложено CTA",
-        "Вопросы клиенту",
-        "Уточнены параметры",
-        "Зафиксированы потребности",
-        "Движение к решению",
-        "Возражения были",
-        "Попытка отработать",
-        "Возражения закрыты",
-        "Тип возражений",
-        "Клиент проявляет интерес",
-        "Клиент готов продолжать",
-        "Клиент запросил инфо",
-        "Клиент согласился на шаг",
-        "Диалог завершен",
-        "Договоренность есть",
-        "Следующий контакт",
-        "Итоговый статус",
-        "Сделано хорошо",
-        "Упущенные возможности",
-        "Улучшения",
-        "Модель ИИ"
+        "Ответственный менеджер",
+        "Менеджер в диалоге",
+        "Тэг",
+        "Дата",
+        "Пояснение",
+        "Среднее время ответа (минуты)",
+        "Воронка -> этап",
+        "Ссылка на сделку",
+        "Анализируемая коммуникация",
+        "1. Поздоровался?",
+        "2. Был конфликт?",
+        "3.1 Выявили потребности?",
+        "3.2 Пояснение",
+        "4. Были возражения?",
+        "5. Была попытка закрыть возражения?",
+        "6.1 Возражение закрыто?",
+        "6.2 Пояснение",
+        "7.1 Интерес клиента к сделке",
+        "7.2 Пояснение",
+        "Рекомендация для менеджера"
     ]
 
 def print_pro_analysis_table(analyses: List[Dict[str, Any]]):

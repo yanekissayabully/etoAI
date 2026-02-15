@@ -1504,34 +1504,35 @@ async def export_analyses_excel(
         # Создаем Excel в памяти
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Аналитика чатов')
+            df.to_excel(writer, index=False, sheet_name='Детализация')
             
-            # Добавляем сводный лист
-            summary_data = {
-                'Метрика': [
-                    'Всего чатов',
-                    'Средний счет',
-                    'Максимальный счет',
-                    'Минимальный счет',
-                    'Отлично (80-100)',
-                    'Хорошо (60-79)',
-                    'Удовлетворительно (40-59)',
-                    'Требует улучшения (0-39)'
-                ],
-                'Значение': [
-                    len(filtered_analyses),
-                    df['Общий счет'].mean(),
-                    df['Общий счет'].max(),
-                    df['Общий счет'].min(),
-                    len(df[df['Общий счет'] >= 80]),
-                    len(df[(df['Общий счет'] >= 60) & (df['Общий счет'] < 80)]),
-                    len(df[(df['Общий счет'] >= 40) & (df['Общий счет'] < 60)]),
-                    len(df[df['Общий счет'] < 40])
-                ]
-            }
+            # Добавляем сводный лист (статистика по менеджерам)
+            manager_stats = {}
+            for row in rows:
+                manager = row.get("Ответственный менеджер", "Неизвестно")
+                if manager not in manager_stats:
+                    manager_stats[manager] = {
+                        "dialogs": 0,
+                        "tags": {}
+                    }
+                manager_stats[manager]["dialogs"] += 1
+                
+                tag = row.get("Тэг", "Нормальный диалог")
+                manager_stats[manager]["tags"][tag] = manager_stats[manager]["tags"].get(tag, 0) + 1
+            
+            summary_data = []
+            for manager, stats in manager_stats.items():
+                row_data = {
+                    "Менеджер": manager,
+                    "Количество диалогов": stats["dialogs"],
+                }
+                # Добавляем тэги
+                for tag, count in stats["tags"].items():
+                    row_data[tag] = count
+                summary_data.append(row_data)
             
             summary_df = pd.DataFrame(summary_data)
-            summary_df.to_excel(writer, index=False, sheet_name='Сводка')
+            summary_df.to_excel(writer, index=False, sheet_name='Рейтинг менеджеров')
         
         output.seek(0)
         
