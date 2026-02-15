@@ -811,6 +811,7 @@ from datetime import datetime, timedelta
 import logging
 import uuid
 from typing import Dict, Any, List, Optional
+from urllib.parse import quote
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -1439,12 +1440,13 @@ async def export_analyses_csv(
     
     # Генерируем имя файла
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"okc_аналитика_{timestamp}.csv"
+    filename = f"okc_analytics_{timestamp}.csv"
+    filename_ru = f"okc_аналитика_{timestamp}.csv"
     
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename={filename}; filename*=UTF-8''{quote(filename_ru)}"}
     )
 
 @app.get("/export/excel")
@@ -1535,12 +1537,13 @@ async def export_analyses_excel(
         
         # Генерируем имя файла
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"okc_аналитика_{timestamp}.xlsx"
+        filename = f"okc_analytics_{timestamp}.xlsx"
+        filename_ru = f"okc_аналитика_{timestamp}.xlsx"
         
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f"attachment; filename={filename}; filename*=UTF-8''{quote(filename_ru)}"}
         )
         
     except ImportError:
